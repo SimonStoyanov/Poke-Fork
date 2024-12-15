@@ -942,6 +942,8 @@ extern const u8 gText_WontHaveEffect[];
 extern const u8 gText_LevelSymbol[];
 extern const u8 gText_PkmnInfo[];
 extern const u8 gText_PkmnSkills[];
+extern const u8 gText_PkmnSkillsEV[];
+extern const u8 gText_PkmnSkillsIV[];
 extern const u8 gText_BattleMoves[];
 extern const u8 gText_ContestMoves[];
 extern const u8 gText_HMMovesCantBeForgotten2[];
@@ -984,6 +986,7 @@ extern const u8 gText_EggFromHotSprings[];
 extern const u8 gText_OddEggFoundByCouple[];
 extern const u8 gText_None[];
 extern const u8 gText_RibbonsVar1[];
+extern const u8 gText_EVsVar1[];
 extern const u8 gText_OneDash[];
 extern const u8 gText_TwoDashes[];
 
