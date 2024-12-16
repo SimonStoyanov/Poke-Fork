@@ -50,7 +50,6 @@
 enum {
     PSS_PAGE_INFO,
     PSS_PAGE_SKILLS,
-    PSS_PAGE_SKILLS_EV,
     PSS_PAGE_BATTLE_MOVES,
     PSS_PAGE_CONTEST_MOVES,
     PSS_PAGE_COUNT,
@@ -107,7 +106,6 @@ enum {
 #define PSS_DATA_WINDOW_EXP 4 // Exp, next level
 #define PSS_DATA_WINDOW_SKILLS_EV_STATS_LEFT 5 // HP, Attack, Defense
 #define PSS_DATA_WINDOW_SKILLS_EV_STATS_RIGHT 6 // Sp. Attack, Sp. Defense, Speed
-
 
 // Dynamic fields for the Battle Moves and Contest Moves pages.
 #define PSS_DATA_WINDOW_MOVE_NAMES 0
@@ -194,6 +192,7 @@ static EWRAM_DATA struct PokemonSummaryScreenData
     bool8 handleDeoxys;
     s16 switchCounter; // Used for various switch statement cases that decompress/load graphics or Pokémon data
     u8 unk_filler4[6];
+    u8 statPageIndex;
 } *sMonSummaryScreen = NULL;
 EWRAM_DATA u8 gLastViewedMonIndex = 0;
 static EWRAM_DATA u8 sMoveSlotToReplace = 0;
@@ -277,20 +276,15 @@ static void PrintEggOTID(void);
 static void PrintEggState(void);
 static void PrintEggMemo(void);
 static void Task_PrintSkillsPage(u8);
-static void Task_PrintSkillsEVPage(u8);
 static void PrintHeldItemName(void);
 static void PrintSkillsPageText(void);
-static void PrintSkillsEVPageText(void);
 static void PrintRibbonCount(void);
 static void PrintEVCount(void);
 static void BufferLeftColumnStats(void);
-static void BufferLeftEVColumnStats(void);
+static void BufferIvOrEvStats(u8 mode);
 static void PrintLeftColumnStats(void);
-static void PrintLeftEVColumnStats(void);
 static void BufferRightColumnStats(void);
-static void BufferRightEVColumnStats(void);
 static void PrintRightColumnStats(void);
-static void PrintRightEVColumnStats(void);
 static void PrintExpPointsNextLevel(void);
 static void PrintBattleMoves(void);
 static void Task_PrintBattleMoves(u8);
@@ -763,7 +757,6 @@ static void (*const sTextPrinterFunctions[])(void) =
 {
     [PSS_PAGE_INFO] = PrintInfoPageText,
     [PSS_PAGE_SKILLS] = PrintSkillsPageText,
-    [PSS_PAGE_SKILLS_EV] = PrintSkillsEVPageText,
     [PSS_PAGE_BATTLE_MOVES] = PrintBattleMoves,
     [PSS_PAGE_CONTEST_MOVES] = PrintContestMoves,
 };
@@ -772,7 +765,6 @@ static void (*const sTextPrinterTasks[])(u8 taskId) =
 {
     [PSS_PAGE_INFO] = Task_PrintInfoPage,
     [PSS_PAGE_SKILLS] = Task_PrintSkillsPage,
-    [PSS_PAGE_SKILLS_EV] = Task_PrintSkillsEVPage,
     [PSS_PAGE_BATTLE_MOVES] = Task_PrintBattleMoves,
     [PSS_PAGE_CONTEST_MOVES] = Task_PrintContestMoves,
 };
@@ -1141,6 +1133,7 @@ void ShowPokemonSummaryScreen(u8 mode, void *mons, u8 monIndex, u8 maxMonIndex, 
     sMonSummaryScreen->curMonIndex = monIndex;
     sMonSummaryScreen->maxMonIndex = maxMonIndex;
     sMonSummaryScreen->callback = callback;
+    sMonSummaryScreen->statPageIndex = 2;
 
     if (mode == SUMMARY_MODE_BOX)
         sMonSummaryScreen->isBoxMon = TRUE;
@@ -1341,7 +1334,6 @@ static void InitBGs(void)
     InitBgsFromTemplates(0, sBgTemplates, ARRAY_COUNT(sBgTemplates));
     SetBgTilemapBuffer(1, sMonSummaryScreen->bgTilemapBuffers[PSS_PAGE_BATTLE_MOVES][0]);
     SetBgTilemapBuffer(2, sMonSummaryScreen->bgTilemapBuffers[PSS_PAGE_SKILLS][0]);
-    SetBgTilemapBuffer(4, sMonSummaryScreen->bgTilemapBuffers[PSS_PAGE_SKILLS_EV][0]);
     SetBgTilemapBuffer(3, sMonSummaryScreen->bgTilemapBuffers[PSS_PAGE_INFO][0]);
     ResetAllBgsCoordinates();
     ScheduleBgCopyTilemapToVram(1);
@@ -1593,8 +1585,8 @@ static void Task_HandleInput(u8 taskId)
             if (sMonSummaryScreen->currPageIndex == PSS_PAGE_SKILLS)
             {
                 PlaySE(SE_SELECT);
-                ChangePage(taskId, 3);
-                //SwitchToEVDisplay(taskId);
+                if (sMonSummaryScreen->statPageIndex == 0) sMonSummaryScreen->statPageIndex = 2; else sMonSummaryScreen->statPageIndex -= 1; 
+                BufferIvOrEvStats(sMonSummaryScreen->statPageIndex);
             }
             else if (sMonSummaryScreen->currPageIndex == PSS_PAGE_INFO)
             {
@@ -1822,6 +1814,8 @@ static void ChangePage(u8 taskId, s8 delta)
         SetTaskFuncWithFollowupFunc(taskId, PssScrollLeft, gTasks[taskId].func);
     CreateTextPrinterTask(sMonSummaryScreen->currPageIndex);
     HidePageSpecificSprites();
+
+    sMonSummaryScreen->statPageIndex = 2;
 }
 
 static void PssScrollRight(u8 taskId) // Scroll right
@@ -1948,15 +1942,6 @@ static void SwitchToMoveSelection(u8 taskId)
     ScheduleBgCopyTilemapToVram(2);
     CreateMoveSelectorSprites(SPRITE_ARR_ID_MOVE_SELECTOR1);
     gTasks[taskId].func = Task_HandleInput_MoveSelect;
-}
-
-static void SwitchToEVDisplay(u8 taskId) 
-{
-    ClearWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_STATS_LEFT);
-    ClearWindowTilemap(PSS_DATA_WINDOW_SKILLS_STATS_LEFT);
-    ClearWindowTilemap(PSS_DATA_WINDOW_SKILLS_STATS_RIGHT);
-    PrintPageSpecificText(PSS_PAGE_SKILLS_EV);
-
 }
 
 static void Task_HandleInput_MoveSelect(u8 taskId)
@@ -2966,12 +2951,6 @@ static void PutPageWindowTilemaps(u8 page)
         PutWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_STATS_RIGHT);
         PutWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EXP);
         break;
-    case PSS_PAGE_SKILLS_EV:
-        PutWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_TITLE);
-        PutWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EV_STATS_LEFT);
-        PutWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EV_STATS_RIGHT);
-        PutWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EXP);
-        break;
     case PSS_PAGE_BATTLE_MOVES:
         PutWindowTilemap(PSS_LABEL_WINDOW_BATTLE_MOVES_TITLE);
         if (sMonSummaryScreen->mode == SUMMARY_MODE_SELECT_MOVE)
@@ -3042,11 +3021,6 @@ static void ClearPageWindowTilemaps(u8 page)
         {
             ClearWindowTilemap(PSS_LABEL_WINDOW_PROMPT_INFO);
         }
-        break;
-    case PSS_PAGE_SKILLS_EV:
-        ClearWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EV_STATS_LEFT);
-        ClearWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EV_STATS_RIGHT);
-        ClearWindowTilemap(PSS_LABEL_WINDOW_POKEMON_SKILLS_EXP);
         break;
     }
 
@@ -3378,17 +3352,6 @@ static void PrintSkillsPageText(void)
     PrintExpPointsNextLevel();
 }
 
-static void PrintSkillsEVPageText(void)
-{
-    PrintHeldItemName();
-    PrintEVCount();
-    BufferLeftEVColumnStats();
-    PrintLeftEVColumnStats();
-    BufferRightEVColumnStats();
-    PrintRightEVColumnStats();
-    PrintExpPointsNextLevel();
-}
-
 static void Task_PrintSkillsPage(u8 taskId)
 {
     s16 *data = gTasks[taskId].data;
@@ -3412,40 +3375,6 @@ static void Task_PrintSkillsPage(u8 taskId)
         break;
     case 6:
         PrintRightColumnStats();
-        break;
-    case 7:
-        PrintExpPointsNextLevel();
-        break;
-    case 8:
-        DestroyTask(taskId);
-        return;
-    }
-    data[0]++;
-}
-
-static void Task_PrintSkillsEVPage(u8 taskId)
-{
-    s16* data = gTasks[taskId].data;
-
-    switch (data[0])
-    {
-    case 1:
-        PrintHeldItemName();
-        break;
-    case 2:
-        PrintEVCount();
-        break;
-    case 3:
-        BufferLeftEVColumnStats();
-        break;
-    case 4:
-        PrintLeftEVColumnStats();
-        break;
-    case 5:
-        BufferRightEVColumnStats();
-        break;
-    case 6:
-        PrintRightEVColumnStats();
         break;
     case 7:
         PrintExpPointsNextLevel();
@@ -3548,47 +3477,101 @@ static void BufferLeftColumnStats(void)
     Free(defenseString);
 }
 
-static void BufferLeftEVColumnStats(void)
+static void BufferIvOrEvStats(u8 mode)
 {
-    u8 evs[6];
-    u16 totalEVs = 0;
-    u8* HPEVString = Alloc(8);
-    u8* attackEVString = Alloc(8);
-    u8* defenseEVString = Alloc(8);
+    u16 hp, hp2, atk, def, spA, spD, spe;
+    u8 *currHPString = Alloc(20);
+    const s8 *natureMod = gNatureStatTable[sMonSummaryScreen->summary.nature];
 
-    int i;
-
-    for (i = 0; i < 6; i++)
+    switch (mode)
     {
-        evs[i] = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_HP_EV + i, 0);
-        totalEVs += evs[i];
+    case 0: // IV mode
+        hp = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_HP_IV);
+        atk = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_ATK_IV);
+        def = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_DEF_IV);
+
+        spA = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_SPATK_IV);
+        spD = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_SPDEF_IV);
+        spe = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_SPEED_IV);
+        break;
+    case 1: // EV mode
+        hp = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_HP_EV);
+        atk = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_ATK_EV);
+        def = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_DEF_EV);
+
+        spA = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_SPATK_EV);
+        spD = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_SPDEF_EV);
+        spe = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_SPEED_EV);
+        break;
+    case 2: // stats mode
+    default:
+        hp = sMonSummaryScreen->summary.currentHP;
+        hp2 = sMonSummaryScreen->summary.maxHP;
+        atk = sMonSummaryScreen->summary.atk;
+        def = sMonSummaryScreen->summary.def;
+
+        spA = sMonSummaryScreen->summary.spatk;
+        spD = sMonSummaryScreen->summary.spdef;
+        spe = sMonSummaryScreen->summary.speed;
+        break;
     }
 
-    ConvertIntToDecimalStringN(HPEVString, evs[0], STR_CONV_MODE_RIGHT_ALIGN, 7);
-    ConvertIntToDecimalStringN(attackEVString, evs[1], STR_CONV_MODE_RIGHT_ALIGN, 7);
-    ConvertIntToDecimalStringN(defenseEVString, evs[2], STR_CONV_MODE_RIGHT_ALIGN, 7);
+    FillWindowPixelBuffer(sMonSummaryScreen->windowIds[PSS_DATA_WINDOW_SKILLS_STATS_LEFT], 0);
+    FillWindowPixelBuffer(sMonSummaryScreen->windowIds[PSS_DATA_WINDOW_SKILLS_STATS_RIGHT], 0);
 
-    DynamicPlaceholderTextUtil_Reset();
-    DynamicPlaceholderTextUtil_SetPlaceholderPtr(0, HPEVString);
-    DynamicPlaceholderTextUtil_SetPlaceholderPtr(1, attackEVString);
-    DynamicPlaceholderTextUtil_SetPlaceholderPtr(2, defenseEVString);
-    DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsEVLeftColumnLayout);
+    switch (mode)
+    {
+    case 0:
+    case 1:
+        ConvertIntToDecimalStringN(gStringVar1, hp, STR_CONV_MODE_RIGHT_ALIGN, 7);
+        ConvertIntToDecimalStringN(gStringVar2, atk, STR_CONV_MODE_RIGHT_ALIGN, 7);
+        ConvertIntToDecimalStringN(gStringVar3, def, STR_CONV_MODE_RIGHT_ALIGN, 7);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(0, gStringVar1);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(1, gStringVar2);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(2, gStringVar3);
+        DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsEVLeftColumnLayout);
+        PrintLeftColumnStats();
 
-    Free(HPEVString);
-    Free(attackEVString);
-    Free(defenseEVString);
+        ConvertIntToDecimalStringN(gStringVar1, spA, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        ConvertIntToDecimalStringN(gStringVar2, spD, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        ConvertIntToDecimalStringN(gStringVar3, spe, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(0, gStringVar1);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(1, gStringVar2);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(2, gStringVar3);
+        DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsRightColumnLayout);
+        PrintRightColumnStats();
+        break;
+    case 2:
+    default:
+        ConvertIntToDecimalStringN(currHPString, hp, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        ConvertIntToDecimalStringN(gStringVar1, hp2, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        ConvertIntToDecimalStringN(gStringVar2, atk, STR_CONV_MODE_RIGHT_ALIGN, 7);
+        ConvertIntToDecimalStringN(gStringVar3, def, STR_CONV_MODE_RIGHT_ALIGN, 7);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(0, currHPString);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(1, gStringVar1);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(2, gStringVar2);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(3, gStringVar3);
+        DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsLeftColumnLayout);
+        PrintLeftColumnStats();
+
+        ConvertIntToDecimalStringN(gStringVar1, spA, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        ConvertIntToDecimalStringN(gStringVar2, spD, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        ConvertIntToDecimalStringN(gStringVar3, spe, STR_CONV_MODE_RIGHT_ALIGN, 3);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(0, gStringVar1);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(1, gStringVar2);
+        DynamicPlaceholderTextUtil_SetPlaceholderPtr(2, gStringVar3);
+        DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsRightColumnLayout);
+        PrintRightColumnStats();
+        break;
+    }
+
+    Free(currHPString);
 }
 
 static void PrintLeftColumnStats(void)
 {
     PrintTextOnWindow(AddWindowFromTemplateList(sPageSkillsTemplate, PSS_DATA_WINDOW_SKILLS_STATS_LEFT), gStringVar4, 4, 1, 0, 0);
 }
-
-static void PrintLeftEVColumnStats(void)
-{
-    PrintTextOnWindow(AddWindowFromTemplateList(sPageSkillsTemplate, PSS_DATA_WINDOW_SKILLS_EV_STATS_LEFT), gStringVar4, 4, 1, 0, 0);
-}
-
 
 static void BufferRightColumnStats(void)
 {
@@ -3603,46 +3586,9 @@ static void BufferRightColumnStats(void)
     DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsRightColumnLayout);
 }
 
-static void BufferRightEVColumnStats(void)
-{
-    u8 evs[6];
-    u16 totalEVs = 0;
-
-    u8* SpAtkEVString = Alloc(8);
-    u8* SpDfEVString = Alloc(8);
-    u8* SpeEVString = Alloc(8);
-
-    int i;
-
-    for (i = 0; i < 6; i++)
-    {
-        evs[i] = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_HP_EV + i, 0);
-        totalEVs += evs[i];
-    }
-
-    ConvertIntToDecimalStringN(SpAtkEVString, evs[3], STR_CONV_MODE_RIGHT_ALIGN, 3);
-    ConvertIntToDecimalStringN(SpDfEVString, evs[4], STR_CONV_MODE_RIGHT_ALIGN, 3);
-    ConvertIntToDecimalStringN(SpeEVString, evs[5], STR_CONV_MODE_RIGHT_ALIGN, 3);
-
-    DynamicPlaceholderTextUtil_Reset();
-    DynamicPlaceholderTextUtil_SetPlaceholderPtr(0, SpAtkEVString);
-    DynamicPlaceholderTextUtil_SetPlaceholderPtr(1, SpDfEVString);
-    DynamicPlaceholderTextUtil_SetPlaceholderPtr(2, SpeEVString);
-    DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, sStatsEVRightColumnLayout);
-
-    Free(SpAtkEVString);
-    Free(SpDfEVString);
-    Free(SpeEVString);
-}
-
 static void PrintRightColumnStats(void)
 {
     PrintTextOnWindow(AddWindowFromTemplateList(sPageSkillsTemplate, PSS_DATA_WINDOW_SKILLS_STATS_RIGHT), gStringVar4, 2, 1, 0, 0);
-}
-
-static void PrintRightEVColumnStats(void)
-{
-    PrintTextOnWindow(AddWindowFromTemplateList(sPageSkillsTemplate, PSS_DATA_WINDOW_SKILLS_EV_STATS_RIGHT), gStringVar4, 2, 1, 0, 0);
 }
 
 static void PrintExpPointsNextLevel(void)
