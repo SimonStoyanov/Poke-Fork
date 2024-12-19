@@ -154,6 +154,7 @@ void Sunny_InitVars(void)
 {
     gWeatherPtr->targetColorMapIndex = 0;
     gWeatherPtr->colorMapStepDelay = 20;
+    Weather_SetBlendCoeffs(8, 12);
 }
 
 void Sunny_InitAll(void)
@@ -768,7 +769,7 @@ void Snow_InitVars(void)
 {
     gWeatherPtr->initStep = 0;
     gWeatherPtr->weatherGfxLoaded = FALSE;
-    gWeatherPtr->targetColorMapIndex = 3;
+    gWeatherPtr->targetColorMapIndex = 0;
     gWeatherPtr->colorMapStepDelay = 20;
     gWeatherPtr->targetSnowflakeSpriteCount = NUM_SNOWFLAKE_SPRITES;
     gWeatherPtr->snowflakeVisibleCounter = 0;
@@ -938,9 +939,8 @@ static void InitSnowflakeSpriteMovement(struct Sprite *sprite)
     sprite->tFallCounter = 0;
 }
 
-static void WaitSnowflakeSprite(struct Sprite *sprite)
+static void UNUSED WaitSnowflakeSprite(struct Sprite *sprite)
 {
-    // Timer is never incremented
     if (++gWeatherPtr->snowflakeTimer > 18)
     {
         sprite->invisible = FALSE;
@@ -954,7 +954,6 @@ static void WaitSnowflakeSprite(struct Sprite *sprite)
 static void UpdateSnowflakeSprite(struct Sprite *sprite)
 {
     s16 x;
-    s16 y;
 
     sprite->tPosY += sprite->tDeltaY;
     sprite->y = sprite->tPosY >> 7;
@@ -2606,5 +2605,3 @@ static void UpdateRainCounter(u8 newWeather, u8 oldWeather)
      && (newWeather == WEATHER_RAIN || newWeather == WEATHER_RAIN_THUNDERSTORM))
         IncrementGameStat(GAME_STAT_GOT_RAINED_ON);
 }
-
-
