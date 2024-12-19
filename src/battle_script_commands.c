@@ -51,8 +51,6 @@
 #include "constants/rgb.h"
 #include "constants/songs.h"
 #include "constants/trainers.h"
-#include "constants/flags.h"
-#include "debug.h"
 
 extern const u8 *const gBattleScriptsForMoveEffects[];
 
@@ -1808,14 +1806,6 @@ static void Cmd_waitanimation(void)
 
 static void Cmd_healthbarupdate(void)
 {
-#if TX_DEBUG_SYSTEM_ENABLE == TRUE
-    u8 side = GetBattlerSide(gBattlerTarget);
-    if (FlagGet(FLAG_SYS_NO_BATTLE_DMG) && side == B_SIDE_PLAYER)
-    {
-        gMoveResultFlags |= MOVE_RESULT_NO_EFFECT;
-    }
-#endif
-
     if (gBattleControllerExecFlags)
         return;
 
